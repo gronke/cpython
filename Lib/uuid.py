@@ -45,9 +45,7 @@ Typical usage:
 """
 
 import os
-
 from enum import Enum
-
 
 __author__ = 'Ka-Ping Yee <ping@zesty.ca>'
 
@@ -475,20 +473,36 @@ def _netbios_getnode():
             continue
         return int.from_bytes(bytes, 'big')
 
+
 # Thanks to Thomas Heller for ctypes and for his help with its use here.
 
 # If ctypes is available, use it to find system routines for UUID generation.
 # XXX This makes the module non-thread-safe!
 _uuid_generate_time = _UuidCreate = None
-try:
-    import ctypes, ctypes.util
-    import sys
 
-    # The uuid_generate_* routines are provided by libuuid on at least
-    # Linux and FreeBSD, and provided by libc on Mac OS X.
+try:
+    import sys
+    # The uuid_generate_* functions are broken on MacOS X 10.5, as noted
+    # in issue #8621 the function generates the same sequence of values
+    # in the parent process and all children created using fork (unless
+    # those children use exec as well).
+    #
+    # Assume that the uuid_generate functions are broken from 10.5 onward,
+    # the test can be adjusted when a later version is fixed.
+    if sys.platform == 'darwin':
+        if int(os.uname().release.split('.')[0]) >= 9:
+            _uuid_generate_time = None
+            raise NotImplementedError("Not supported on OSX >= 10.5")
+
+    import ctypes
+    import ctypes.util
+    # The uuid_generate_* routines are provided by libuuid - at least
+    # on Linux. On FreeBSD and OS X they are provided by libc
     _libnames = ['uuid']
     if not sys.platform.startswith('win'):
         _libnames.append('c')
+    elif sys.platform.endswith('bsd'):
+        _libnames.insert(0, 'c')
     for libname in _libnames:
         try:
             lib = ctypes.CDLL(ctypes.util.find_library(libname))
@@ -506,17 +520,6 @@ try:
             break
     del _libnames
 
-    # The uuid_generate_* functions are broken on MacOS X 10.5, as noted
-    # in issue #8621 the function generates the same sequence of values
-    # in the parent process and all children created using fork (unless
-    # those children use exec as well).
-    #
-    # Assume that the uuid_generate functions are broken from 10.5 onward,
-    # the test can be adjusted when a later version is fixed.
-    if sys.platform == 'darwin':
-        if int(os.uname().release.split('.')[0]) >= 9:
-            _uuid_generate_time = None
-
     # On Windows prior to 2000, UuidCreate gives a UUID containing the
     # hardware address.  On Windows 2000 and later, UuidCreate makes a
     # random UUID and UuidCreateSequential gives a UUID containing the
@@ -533,6 +536,7 @@ try:
                           getattr(lib, 'UuidCreate', None))
 except:
     pass
+
 
 def _unixdll_getnode():
     """Get the hardware address on Unix using ctypes."""
